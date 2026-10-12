@@ -133,6 +133,71 @@ func TestShellRoundTrip(t *testing.T) {
 	}
 }
 
+func TestUpstreamForwardsWebSocket(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Fake zot web endpoint: echoes one frame and reports the request.
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
+		if err != nil {
+			return
+		}
+		defer c.CloseNow()
+		_, data, err := c.Read(r.Context())
+		if err != nil {
+			return
+		}
+		_ = c.Write(r.Context(), websocket.MessageText, []byte(r.URL.Path+" "+r.Header.Get("Origin")+" "+string(data)))
+	}))
+	defer upstream.Close()
+
+	proxy, _, err := newUpstream(strings.TrimPrefix(upstream.URL, "http://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{Token: testToken, Shell: "/bin/sh", Dir: t.TempDir(), Upstream: proxy}
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+	base := "ws" + strings.TrimPrefix(ts.URL, "http")
+
+	c, _, err := dial(t, ctx, base+"/", "https://web.zot.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.CloseNow()
+	if err := c.Write(ctx, websocket.MessageText, []byte("hello")); err != nil {
+		t.Fatal(err)
+	}
+	_, got, err := c.Read(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "/ https://web.zot.sh hello" {
+		t.Fatalf("upstream saw %q", got)
+	}
+
+	// /term is still served by zotty, not forwarded.
+	term, _, err := dial(t, ctx, base+"/term", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.CloseNow()
+	sendJSON(t, ctx, term, map[string]any{"type": "auth", "token": testToken})
+	_, data, err := term.Read(ctx)
+	if err != nil || !bytes.Contains(data, []byte(`"ready"`)) {
+		t.Fatalf("want ready from /term, got %q %v", data, err)
+	}
+}
+
+func TestNewUpstreamRejectsBadAddress(t *testing.T) {
+	for _, a := range []string{"ftp://x", "http://"} {
+		if _, _, err := newUpstream(a); err == nil {
+			t.Errorf("newUpstream(%q) succeeded", a)
+		}
+	}
+}
+
 func TestLoadOrCreateToken(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "sub", "token")
 	tok, created, err := loadOrCreateToken(p)

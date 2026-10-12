@@ -22,6 +22,7 @@ On first start it creates a random token in your user config directory (macOS: `
 | `--origins` | `https://web.zot.sh` | Comma-separated browser origins allowed in addition to localhost. |
 | `--shell` | `$SHELL`, then `/bin/sh` | Shell to start as a login shell. |
 | `--dir` | home directory | Working directory for new shells. |
+| `--upstream` | off | Forward every path except `/term` and `/health` to this address, for example zot's `--web` listener `127.0.0.1:7787`. Lets one tunnel serve zot and zotty. |
 
 ### Remote access with Tailscale
 
@@ -35,13 +36,20 @@ Then use `https://<machine>.<tailnet>.ts.net:8443` as the terminal URL.
 
 > **Warning:** a cloudflared tunnel is reachable from the public internet. Only the token protects the shell. Prefer Tailscale when you can.
 
-**Quick tunnel** (no Cloudflare account):
+**Quick tunnel for zot and zotty** (no Cloudflare account, no domain):
 
 ```sh
+zot continuous serve --store ~/.zot-store --web 127.0.0.1:7787
+zotty serve --upstream 127.0.0.1:7787
 cloudflared tunnel --url http://127.0.0.1:7789
 ```
 
-Use the printed `https://<random>.trycloudflare.com` address as the terminal URL. A quick tunnel forwards a single port, so zot needs its own tunnel and gets a different URL. The address changes on every start.
+zotty serves `/term` and forwards everything else to zot. With the printed `https://<random>.trycloudflare.com` address, use:
+
+- host URL: `https://<random>.trycloudflare.com`
+- terminal URL: `https://<random>.trycloudflare.com/term`
+
+The address changes on every start. Both endpoints keep their own token: the zot web token and the zotty token.
 
 **Named tunnel** (Cloudflare account and your own domain): route zot and zotty through one hostname by path:
 

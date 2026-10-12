@@ -44,6 +44,9 @@ type Server struct {
 	Origins []string
 	Shell   string
 	Dir     string
+	// Upstream, when set, receives every request except /term and /health.
+	// This lets one tunnel serve both zot and zotty.
+	Upstream http.Handler
 
 	mu       sync.Mutex
 	sessions int
@@ -63,6 +66,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, "ok\n")
 	})
+	if s.Upstream != nil {
+		mux.Handle("/", s.Upstream)
+	}
 	return mux
 }
 

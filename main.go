@@ -17,6 +17,8 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -25,9 +27,16 @@ import (
 	"time"
 )
 
+// version is set at release build time with -ldflags "-X main.version=...".
+var version = "dev"
+
 func main() {
+	if len(os.Args) == 2 && (os.Args[1] == "version" || os.Args[1] == "--version") {
+		fmt.Println("zotty", version)
+		return
+	}
 	if len(os.Args) < 2 || os.Args[1] != "serve" {
-		fmt.Fprintln(os.Stderr, "usage: zotty serve [flags]")
+		fmt.Fprintln(os.Stderr, "usage: zotty serve [flags]\n       zotty version")
 		os.Exit(2)
 	}
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
@@ -36,6 +45,7 @@ func main() {
 	origins := fs.String("origins", "https://web.zot.sh", "comma-separated browser origins allowed in addition to localhost")
 	shell := fs.String("shell", "", "shell to start (default: $SHELL, then /bin/sh)")
 	dir := fs.String("dir", "", "working directory for new shells (default: home directory)")
+	upstream := fs.String("upstream", "", "forward all other paths to this address, e.g. 127.0.0.1:7787 for zot continuous --web")
 	_ = fs.Parse(os.Args[2:])
 
 	token, created, err := loadOrCreateToken(*tokenFile)
@@ -52,6 +62,14 @@ func main() {
 		Shell:   resolveShell(*shell),
 		Dir:     resolveDir(*dir),
 	}
+	if *upstream != "" {
+		proxy, target, err := newUpstream(*upstream)
+		if err != nil {
+			log.Fatalf("zotty: upstream: %v", err)
+		}
+		srv.Upstream = proxy
+		log.Printf("zotty: forwarding other paths to %s", target)
+	}
 
 	ln, err := net.Listen("tcp", *listen)
 	if err != nil {
@@ -60,7 +78,7 @@ func main() {
 	if !isLoopback(ln.Addr()) {
 		log.Printf("zotty: WARNING listening on %s, which is not loopback. Anyone who reaches it and has the token gets a shell.", ln.Addr())
 	}
-	log.Printf("zotty: listening on ws://%s/term", ln.Addr())
+	log.Printf("zotty %s: listening on ws://%s/term", version, ln.Addr())
 	log.Printf("zotty: token %s", token)
 
 	httpSrv := &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
@@ -75,6 +93,31 @@ func main() {
 	if err := httpSrv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatalf("zotty: %v", err)
 	}
+}
+
+// newUpstream builds a reverse proxy to addr (host:port or http URL).
+// httputil.ReverseProxy passes WebSocket upgrades through.
+func newUpstream(addr string) (http.Handler, *url.URL, error) {
+	if !strings.Contains(addr, "://") {
+		addr = "http://" + addr
+	}
+	target, err := url.Parse(addr)
+	if err != nil {
+		return nil, nil, err
+	}
+	if target.Scheme != "http" && target.Scheme != "https" {
+		return nil, nil, fmt.Errorf("unsupported scheme %q", target.Scheme)
+	}
+	if target.Host == "" {
+		return nil, nil, fmt.Errorf("missing host in %q", addr)
+	}
+	proxy := &httputil.ReverseProxy{
+		Rewrite: func(r *httputil.ProxyRequest) {
+			r.SetURL(target)
+			r.SetXForwarded()
+		},
+	}
+	return proxy, target, nil
 }
 
 func defaultTokenFile() string {
