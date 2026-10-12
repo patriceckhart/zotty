@@ -45,8 +45,15 @@ func main() {
 		fmt.Println("zotty", version)
 		return
 	}
+	if len(os.Args) >= 2 && os.Args[1] == "update" {
+		if err := runUpdateCommand(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "zotty:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) < 2 || os.Args[1] != "serve" {
-		fmt.Fprintln(os.Stderr, "usage: zotty serve [flags]\n       zotty version")
+		fmt.Fprintln(os.Stderr, "usage: zotty serve [flags]\n       zotty update [--check]\n       zotty version")
 		os.Exit(2)
 	}
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
@@ -89,6 +96,7 @@ func main() {
 		log.Printf("zotty: WARNING listening on %s, which is not loopback. Anyone who reaches it and has the token gets a shell.", ln.Addr())
 	}
 	log.Printf("zotty %s: listening on ws://%s/term", version, ln.Addr())
+	noticeUpdate(log.Printf)
 	log.Printf("zotty: token %s", token)
 
 	httpSrv := &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}

@@ -34,6 +34,17 @@ go build -o zotty .
 
 Check the installed version with `zotty version`.
 
+### Updates
+
+```sh
+zotty update --check   # show whether a newer release exists
+zotty update           # download, verify, and install it
+```
+
+`zotty update` replaces the running binary in place after verifying the release checksum. Restart `zotty serve` afterwards. A root-owned install (for example in `/usr/local/bin`) needs `sudo`. Development builds are not updated.
+
+On start, `zotty serve` checks in the background for a newer release and logs a notice if there is one. The result is cached for 12 hours in the zotty config directory, and the check never delays or blocks startup. Set `ZOTTY_NO_UPDATE_CHECK=1` to turn it off.
+
 ## Run
 
 ```sh
