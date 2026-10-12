@@ -22,6 +22,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"syscall"
 	"time"
@@ -29,6 +30,15 @@ import (
 
 // version is set at release build time with -ldflags "-X main.version=...".
 var version = "dev"
+
+func init() {
+	// go install records the module version (e.g. v0.0.1) in the binary.
+	if version == "dev" {
+		if info, ok := debug.ReadBuildInfo(); ok && strings.HasPrefix(info.Main.Version, "v") {
+			version = strings.TrimPrefix(info.Main.Version, "v")
+		}
+	}
+}
 
 func main() {
 	if len(os.Args) == 2 && (os.Args[1] == "version" || os.Args[1] == "--version") {

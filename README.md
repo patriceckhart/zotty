@@ -4,14 +4,43 @@ zotty (zero-overhead-tty) is a small terminal bridge for the zot web UI ([web.zo
 
 > **Security:** zotty grants full shell access as the user running it. Anyone who can reach it and has the token can run any command. Keep it on localhost and expose it only through a private tunnel such as Tailscale. Do not publish it through a public tunnel.
 
-## Run
+## Install
+
+### One-liner (macOS, Linux)
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/patriceckhart/zotty/main/install.sh | bash
+```
+
+Detects your OS and architecture, downloads the latest release from GitHub, verifies the SHA-256 against the release's `checksums.txt`, and installs the binary into `/usr/local/bin`, `~/.local/bin`, or `~/bin`, whichever is writable first. Pass a version or prefix to pin:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/patriceckhart/zotty/main/install.sh | bash -s -- v0.0.1 ~/bin
+```
+
+Windows is not supported, because zotty needs a Unix pseudo-terminal.
+
+### go install
+
+```sh
+go install github.com/patriceckhart/zotty@latest
+```
+
+### From source
 
 ```sh
 go build -o zotty .
-./zotty serve
 ```
 
-On first start it creates a random token in your user config directory (macOS: `~/Library/Application Support/zotty/token`, mode `0600`) and prints it. In the web UI, open the terminal button in the sidebar footer and enter the bridge URL and this token.
+Check the installed version with `zotty version`.
+
+## Run
+
+```sh
+zotty serve
+```
+
+On first start it creates a random token in your user config directory (macOS: `~/Library/Application Support/zotty/token`, mode `0600`) and prints it. In the web UI, open the terminal button in a conversation's top bar and enter the bridge URL and this token.
 
 ### Flags
 
