@@ -1,0 +1,101 @@
+name: release
+
+# Every push to main is tested, then released as the next version:
+# v0.0.1, v0.0.2, ... v0.0.99, v0.1.0, ... (see .github/scripts/next-version.sh).
+# Put [release=skip] in the commit message to test without releasing.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - run: go vet ./...
+      - run: go test -race ./...
+      - name: version script
+        run: |
+          s=.github/scripts/next-version.sh
+          [ "$(bash $s '')" = v0.0.1 ]
+          [ "$(bash $s v0.0.1)" = v0.0.2 ]
+          [ "$(bash $s v0.0.98)" = v0.0.99 ]
+          [ "$(bash $s v0.0.99)" = v0.1.0 ]
+          [ "$(bash $s v0.1.99)" = v0.2.0 ]
+          [ "$(bash $s v1.9.99)" = v1.10.0 ]
+          ! bash $s v1.2 2>/dev/null
+
+  release:
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && !contains(github.event.head_commit.message, '[release=skip]')
+    runs-on: ubuntu-latest
+    permissions:
+      # Needed to push the tag and create the release.
+      contents: write
+    # One release at a time so two quick pushes cannot claim the same tag.
+    concurrency:
+      group: release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history and tags, to find the latest version.
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: compute next version
+        id: version
+        run: |
+          latest=$(git tag --list 'v*.*.*' --sort=-v:refname | head -n1)
+          next=$(bash .github/scripts/next-version.sh "$latest")
+          echo "latest: ${latest:-none}, next: $next"
+          echo "tag=$next" >> "$GITHUB_OUTPUT"
+
+      - name: build
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          mkdir -p dist
+          # zotty needs a Unix PTY, so there are no Windows builds.
+          for target in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64; do
+            os=${target%/*}
+            arch=${target#*/}
+            name="zotty_${TAG#v}_${os}_${arch}"
+            mkdir -p "dist/$name"
+            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath \
+              -ldflags "-s -w -X main.version=${TAG#v}" \
+              -o "dist/$name/zotty" .
+            cp README.md LICENSE "dist/$name/"
+            tar -C dist -czf "dist/$name.tar.gz" "$name"
+          done
+          (cd dist && sha256sum ./*.tar.gz > checksums.txt)
+          ls -l dist
+
+      - name: tag and release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "release $TAG"
+          git push origin "$TAG"
+          gh release create "$TAG" dist/*.tar.gz dist/checksums.txt \
+            --title "$TAG" --generate-notes --verify-tag
