@@ -63,6 +63,10 @@ type control struct {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/term", s.serveTerm)
+	mux.HandleFunc("/files/list", s.serveList)
+	mux.HandleFunc("/files/read", s.serveRead)
+	mux.HandleFunc("/git/status", s.serveStatus)
+	mux.HandleFunc("/git/diff", s.serveDiff)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, "ok\n")
 	})
