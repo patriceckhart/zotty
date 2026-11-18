@@ -297,14 +297,16 @@ func (s *Server) serveDiff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	args := []string{"diff", "--no-ext-diff", "--find-renames"}
-	if q.Get("staged") == "1" {
+	switch {
+	case q.Get("staged") == "1":
 		args = append(args, "--cached")
-	} else if q.Get("all") == "1" {
+	case q.Get("all") == "1":
 		// Staged and unstaged changes against the last commit.
 		if _, err := git(r.Context(), root, 4096, "rev-parse", "--verify", "HEAD"); err == nil {
 			args = append(args, "HEAD")
 		}
 	}
+	staged := q.Get("staged") == "1"
 	if file != "" {
 		args = append(args, "--", file)
 	}
@@ -314,7 +316,7 @@ func (s *Server) serveDiff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Untracked files have no diff; show them as fully added.
-	if diff == "" && file != "" {
+	if diff == "" && file != "" && !staged {
 		if _, err := git(r.Context(), root, 4096, "ls-files", "--error-unmatch", "--", file); err != nil {
 			out, _ := gitNoIndex(r.Context(), root, file)
 			diff = out

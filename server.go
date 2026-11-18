@@ -70,6 +70,9 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc(prefix+"/files/read", s.serveRead)
 		mux.HandleFunc(prefix+"/git/status", s.serveStatus)
 		mux.HandleFunc(prefix+"/git/diff", s.serveDiff)
+		mux.HandleFunc(prefix+"/git/branches", s.serveBranches)
+		mux.HandleFunc(prefix+"/git/log", s.serveLog)
+		mux.HandleFunc(prefix+"/git/show", s.serveShow)
 	}
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, "ok\n")

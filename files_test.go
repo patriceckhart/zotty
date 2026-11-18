@@ -135,3 +135,74 @@ func TestGitStatusAndDiff(t *testing.T) {
 		t.Fatalf("option injection: %d", code)
 	}
 }
+
+func TestGitHistory(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	srv, dir := filesServer(t)
+	run := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %s", args, out)
+		}
+	}
+	run("init", "-q", "-b", "main")
+	var empty struct {
+		Commits []gitCommit `json:"commits"`
+	}
+	if code := get(t, srv, "/term/git/log", nil, &empty); code != 200 || len(empty.Commits) != 0 {
+		t.Fatalf("empty log %d %+v", code, empty)
+	}
+	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("one\n"), 0o644)
+	run("add", ".")
+	run("commit", "-q", "-m", "first")
+	run("checkout", "-q", "-b", "feature")
+	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("one\ntwo\n"), 0o644)
+	run("mv", "a.txt", "b.txt")
+	run("commit", "-q", "-am", "second\n\nbody text")
+
+	var br struct {
+		Branches []gitBranch `json:"branches"`
+	}
+	get(t, srv, "/git/branches", nil, &br)
+	if len(br.Branches) != 2 || !br.Branches[0].Current || br.Branches[0].Name != "feature" {
+		t.Fatalf("branches %+v", br)
+	}
+
+	var log struct {
+		Commits []gitCommit `json:"commits"`
+		More    bool        `json:"more"`
+	}
+	get(t, srv, "/git/log", url.Values{"limit": {"1"}}, &log)
+	if len(log.Commits) != 1 || log.Commits[0].Subject != "second" || log.Commits[0].Body != "body text" || !log.More {
+		t.Fatalf("log %+v", log)
+	}
+	get(t, srv, "/git/log", url.Values{"ref": {"main"}}, &log)
+	if len(log.Commits) != 1 || log.Commits[0].Subject != "first" {
+		t.Fatalf("main log %+v", log)
+	}
+
+	var show struct {
+		Files []commitFile `json:"files"`
+		Diff  string       `json:"diff"`
+	}
+	get(t, srv, "/git/show", url.Values{"commit": {"HEAD"}}, &show)
+	if len(show.Files) != 1 || show.Files[0].Status != "R" || show.Files[0].From != "a.txt" || show.Files[0].Path != "b.txt" || show.Files[0].Added != 1 {
+		t.Fatalf("show files %+v", show.Files)
+	}
+	if !strings.Contains(show.Diff, "+two") {
+		t.Fatalf("show diff %q", show.Diff)
+	}
+	get(t, srv, "/git/show", url.Values{"commit": {"main"}}, &show)
+	if len(show.Files) != 1 || show.Files[0].Status != "A" {
+		t.Fatalf("root commit %+v", show.Files)
+	}
+	for _, bad := range []string{"--output=/tmp/x", "a..b"} {
+		if code := get(t, srv, "/git/show", url.Values{"commit": {bad}}, nil); code != 400 {
+			t.Fatalf("%s: %d", bad, code)
+		}
+	}
+}
